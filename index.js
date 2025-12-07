@@ -59,6 +59,8 @@ async function run() {
         // await client.connect()
         const digital_life_lessons_db = client.db('Digital_Life_Lessons')
         const addLessonsCollection = digital_life_lessons_db.collection('Lessons')
+        const commentCollection = digital_life_lessons_db.collection('Comments')
+
 
 
         // add lessons post
@@ -67,67 +69,40 @@ async function run() {
             console.log(lesson);
             const result = await addLessonsCollection.insertOne(lesson);
             res.send(result)
+        });
 
-        })
-
-        // all lessons get
-        app.get('/lessons', async (req, res) => {
-            const query = {};
-            const result = await addLessonsCollection.find(query).toArray();
-            res.send(result)
-        })
-
-        // single item get use id
-        // app.get("/transactions/:id", async (req, res) => {
-        //     const id = req.params.id;
-        //     const result = await transactionsCollection.findOne({
-        //         _id: new ObjectId(id),
-        //     });
-        //     res.send(result);
-        // });
-
-        // transactions get by email
-        // app.get('/myTransactions', async (req, res) => {
-        //     const email = req.query.email;
-        //     const query = {}
-        //     if (email) {
-        //         query.email = email;
-        //     }
-        //     const result = await transactionsCollection.find(query).toArray();
-        //     res.send(result)
-        // }
-        // )
-
-
-
-        //  UPDATE product by id
-        // app.put("/myTransactions/update/:id", async (req, res) => {
-        //     const { id } = req.params;
-        //     const data = req.body;
-        //     const objectId = new ObjectId(id)
-        //     const result = await transactionsCollection.updateOne({ _id: objectId }, { $set: data });
-
-        //     res.send({
-        //         success: true,
-        //         result,
-        //     });
-        // });
-
-        //  DELETE product by id
-        app.delete("/transactions/:id", async (req, res) => {
-            const id = req.params.id;
+        // all lessons get by email
+        app.get("/lessons", async (req, res) => {
+            const query = {}
+            const { email } = req.query;
+            if (email) {
+                query.authorEmail = email
+            }
+            const cursor = addLessonsCollection.find(query)
+            const result = await cursor.toArray();
+            res.send(result);
+        });
+        // all lessons get by lesson id
+        app.get("/lessons/:id", async (req, res) => {
+            const id = req.params;
             const query = { _id: new ObjectId(id) };
-            const result = await transactionsCollection.deleteOne(query);
+            const result = await addLessonsCollection.findOne(query);
             res.send(result);
         });
 
-
-
-        await client.db('admin').command({ ping: 1 })
-
-
-
-
+        // post comments
+        app.post('/comments', async (req, res) => {
+            const comment = req.body;
+            console.log(comment);
+            const result = await commentCollection.insertOne(comment);
+            res.send(result)
+        });
+        // get comments by lesson id
+        app.get('/comments/postId', async (req, res) => {
+            const postId = req.query.postId;
+            const comment = await commentCollection.find({ postId: postId }).sort({ _id: -1 }).toArray();
+            res.send(comment);
+        });
     }
     finally {
 
