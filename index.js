@@ -60,6 +60,8 @@ async function run() {
         const digital_life_lessons_db = client.db('Digital_Life_Lessons')
         const addLessonsCollection = digital_life_lessons_db.collection('Lessons')
         const commentCollection = digital_life_lessons_db.collection('Comments')
+        const loveReactCollection = digital_life_lessons_db.collection('LoveReact')
+        const sharedCollection = digital_life_lessons_db.collection('Shared')
 
 
 
@@ -90,6 +92,93 @@ async function run() {
             res.send(result);
         });
 
+        // lesson delete by id
+        app.delete('/lessons/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const result = await addLessonsCollection.deleteOne(query);
+            res.send(result);
+        });
+        // love react
+        app.post('/loveReact/:lessonId', async (req, res) => {
+            const lessonId = req.params.lessonId;
+            const userEmail = req.body.userEmail;
+
+            if (!userEmail) {
+                return res.status(400).send({ message: "userEmail is required" });
+            }
+
+            // Find loveReact doc for this lesson
+            let doc = await loveReactCollection.findOne({ _id: lessonId });
+
+            // If not existed, create one
+            if (!doc) {
+                await loveReactCollection.insertOne({
+                    _id: lessonId,
+                    likedBy: [userEmail]
+                });
+
+                return res.send({
+                    liked: true,
+                    totalLikes: 1
+                });
+            }
+
+            // Check if the user already liked
+            const isLiked = doc.likedBy.includes(userEmail);
+
+            if (isLiked) {
+                // UNLIKE
+                await loveReactCollection.updateOne(
+                    { _id: lessonId },
+                    { $pull: { likedBy: userEmail } }
+                );
+            } else {
+                // LIKE
+                await loveReactCollection.updateOne(
+                    { _id: lessonId },
+                    { $addToSet: { likedBy: userEmail } }
+                );
+            }
+
+            // Fetch updated doc
+            const updated = await loveReactCollection.findOne({ _id: lessonId });
+
+            res.send({
+                liked: updated.likedBy.includes(userEmail),
+                totalLikes: updated.likedBy.length
+            });
+        });
+
+        // Get love react status
+        app.get('/loveReact/:lessonId', async (req, res) => {
+            const lessonId = req.params.lessonId;
+            const userEmail = req.query.userEmail;
+
+            const doc = await loveReactCollection.findOne({ _id: lessonId });
+
+            if (!doc) {
+                return res.send({
+                    liked: false,
+                    totalLikes: 0
+                });
+            }
+
+            res.send({
+                liked: userEmail ? doc.likedBy.includes(userEmail) : false,
+                totalLikes: doc.likedBy.length
+            });
+        });
+
+
+
+        // shared
+        app.post('/shared', async (req, res) => {
+            const shared = req.body;
+            console.log(shared);
+            const result = await sharedCollection.insertOne(shared);
+            res.send(result)
+        });
         // post comments
         app.post('/comments', async (req, res) => {
             const comment = req.body;
@@ -97,11 +186,16 @@ async function run() {
             const result = await commentCollection.insertOne(comment);
             res.send(result)
         });
-        // get comments by lesson id
-        app.get('/comments/postId', async (req, res) => {
+        // get comments by postId
+        app.get('/comments', async (req, res) => {
             const postId = req.query.postId;
-            const comment = await commentCollection.find({ postId: postId }).sort({ _id: -1 }).toArray();
-            res.send(comment);
+            const comments = await commentCollection
+                .find({ postId })
+                .sort({ _id: -1 })
+                .toArray();
+
+            res.send(comments);
+
         });
     }
     finally {
