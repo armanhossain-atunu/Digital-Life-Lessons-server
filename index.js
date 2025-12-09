@@ -80,7 +80,7 @@ async function run() {
             if (email) {
                 query.authorEmail = email
             }
-            const cursor = addLessonsCollection.find(query)
+            const cursor = addLessonsCollection.find(query).sort({ createdAt: -1 })
             const result = await cursor.toArray();
             res.send(result);
         });
