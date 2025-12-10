@@ -61,6 +61,7 @@ async function run() {
         const addLessonsCollection = digital_life_lessons_db.collection('Lessons')
         const commentCollection = digital_life_lessons_db.collection('Comments')
         const loveReactCollection = digital_life_lessons_db.collection('LoveReact')
+        const favoriteCollection = digital_life_lessons_db.collection('Favorite')
         const sharedCollection = digital_life_lessons_db.collection('Shared')
 
 
@@ -170,15 +171,100 @@ async function run() {
             });
         });
 
+        // favorite
+        app.post('/favorite/:lessonId', async (req, res) => {
+            try {
+                const lessonId = req.params.lessonId;
+                const userEmail = req.body.userEmail;
 
+                if (!userEmail) {
+                    return res.status(400).send({ message: "userEmail is required" });
+                }
 
-        // shared
-        app.post('/shared', async (req, res) => {
-            const shared = req.body;
-            console.log(shared);
-            const result = await sharedCollection.insertOne(shared);
-            res.send(result)
+                const lessonObjectId = new ObjectId(lessonId);
+
+                // Find doc
+                let doc = await favoriteCollection.findOne({ lessonId: lessonObjectId });
+
+                // Create if not exists
+                if (!doc) {
+                    await favoriteCollection.insertOne({
+                        lessonId: lessonObjectId,
+                        favoritedBy: [userEmail]
+                    });
+
+                    return res.send({
+                        favorited: true,
+                        totalFavorites: 1
+                    });
+                }
+
+                // Toggle
+                const isFavorited = doc.favoritedBy.includes(userEmail);
+
+                if (isFavorited) {
+                    await favoriteCollection.updateOne(
+                        { lessonId: lessonObjectId },
+                        { $pull: { favoritedBy: userEmail } }
+                    );
+                } else {
+                    await favoriteCollection.updateOne(
+                        { lessonId: lessonObjectId },
+                        { $addToSet: { favoritedBy: userEmail } }
+                    );
+                }
+
+                const updated = await favoriteCollection.findOne({ lessonId: lessonObjectId });
+
+                res.send({
+                    favorited: updated.favoritedBy.includes(userEmail),
+                    totalFavorites: updated.favoritedBy.length
+                });
+
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Internal Server Error" });
+            }
         });
+
+        // check favorite
+        app.get('/checkFavorite', async (req, res) => {
+            try {
+                const lessonId = req.query.lessonId;
+                const userEmail = req.query.userEmail;
+
+                const lessonObjectId = new ObjectId(lessonId);
+
+                const doc = await favoriteCollection.findOne({ lessonId: lessonObjectId });
+
+                if (!doc) {
+                    return res.send({
+                        favorited: false,
+                        totalFavorites: 0
+                    });
+                }
+
+                res.send({
+                    favorited: doc.favoritedBy.includes(userEmail),
+                    totalFavorites: doc.favoritedBy.length
+                });
+
+            } catch (error) {
+                res.send({
+                    favorited: false,
+                    totalFavorites: 0
+                });
+            }
+        });
+
+
+        // // shared
+        // app.post('/shared', async (req, res) => {
+        //     const shared = req.body;
+        //     console.log(shared);
+        //     const result = await sharedCollection.insertOne(shared);
+        //     res.send(result)
+        // });
         // post comments
         app.post('/comments', async (req, res) => {
             const comment = req.body;
