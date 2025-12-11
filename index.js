@@ -58,11 +58,39 @@ async function run() {
 
         // await client.connect()
         const digital_life_lessons_db = client.db('Digital_Life_Lessons')
+        const userCollection = digital_life_lessons_db.collection('Users')
         const addLessonsCollection = digital_life_lessons_db.collection('Lessons')
         const commentCollection = digital_life_lessons_db.collection('Comments')
         const loveReactCollection = digital_life_lessons_db.collection('LoveReact')
         const favoriteCollection = digital_life_lessons_db.collection('Favorite')
         const sharedCollection = digital_life_lessons_db.collection('Shared')
+
+
+        // users Api
+        app.post('/users', async (req, res) => {
+            const user = req.body;
+            user.role = "user";
+            user.createdAt = new Date();
+            const result = await userCollection.insertOne(user);
+            res.send(result)
+        });
+        // get all users
+        app.get('/users', async (req, res) => {
+            try {
+                const email = req.query.email;
+                // If email query exists → find that user
+                const user = await userCollection.find({ email }).toArray();
+                return res.send(user);
+                // Else return all users
+                // const users = await userCollection.find().toArray();
+                // res.send(users);
+            } catch (error) {
+                console.log(error);
+                res.status(500).send({ message: "Server error", error });
+            }
+        });
+
+
 
 
 
