@@ -78,21 +78,13 @@ async function run() {
         app.get('/users', async (req, res) => {
             try {
                 const email = req.query.email;
-                // If email query exists → find that user
                 const user = await userCollection.find({ email }).toArray();
                 return res.send(user);
-                // Else return all users
-                // const users = await userCollection.find().toArray();
-                // res.send(users);
             } catch (error) {
                 console.log(error);
                 res.status(500).send({ message: "Server error", error });
             }
         });
-
-
-
-
 
         // add lessons post
         app.post('/add_lessons', async (req, res) => {
@@ -289,7 +281,6 @@ async function run() {
 
         app.get('/favoriteFullLessons', async (req, res) => {
             const email = req.query.email;
-
             // Step 1: find favorite records
             const favorites = await favoriteCollection.find({
                 favoritedBy: email
@@ -316,7 +307,6 @@ async function run() {
         // post comments
         app.post('/comments', async (req, res) => {
             const comment = req.body;
-            console.log(comment);
             const result = await commentCollection.insertOne(comment);
             res.send(result)
         });
