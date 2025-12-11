@@ -171,7 +171,7 @@ async function run() {
             });
         });
 
-        // favorite
+        // favorite react status post
         app.post('/favorite/:lessonId', async (req, res) => {
             try {
                 const lessonId = req.params.lessonId;
@@ -257,6 +257,26 @@ async function run() {
             }
         });
 
+        // favoriteFullLessons
+
+        app.get('/favoriteFullLessons', async (req, res) => {
+            const email = req.query.email;
+
+            // Step 1: find favorite records
+            const favorites = await favoriteCollection.find({
+                favoritedBy: email
+            }).toArray();
+
+            // Step 2: extract lesson ids
+            const lessonIds = favorites.map(f => new ObjectId(f.lessonId));
+
+            // Step 3: get full lessons
+            const result = await addLessonsCollection.find({
+                _id: { $in: lessonIds }
+            }).toArray();
+
+            res.send(result);
+        });
 
         // // shared
         // app.post('/shared', async (req, res) => {
