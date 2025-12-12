@@ -61,13 +61,13 @@ async function run() {
         //                           USER ROUTES
         // =====================================================================
 
-        app.post('/users',  async (req, res, next) => {
+        app.post('/users', async (req, res, next) => {
             const user = req.body;
             const result = await userCollection.insertOne(user);
             res.send(result);
         });
 
-        app.get('/users',  async (req, res, next) => {
+        app.get('/users', async (req, res, next) => {
             const result = await userCollection.find().toArray();
             res.send(result);
         });
@@ -82,7 +82,29 @@ async function run() {
                 res.status(500).send({ message: "Server error" });
             }
         });
+        // Update user profile
+        // Update user profile
+        app.put("/updateUserProfile", async (req, res) => {
+            const { email, displayName, photoURL } = req.body;
 
+            if (!email) return res.status(400).send({ message: "Email is required" });
+
+            try {
+                // Update user
+                await userCollection.updateOne(
+                    { email },
+                    { $set: { displayName, photoURL } }
+                );
+
+                // Fetch updated user
+                const updatedUser = await userCollection.findOne({ email });
+
+                res.send({ success: true, updatedUser });
+            } catch (error) {
+                console.error("Update Error:", error.message);
+                res.status(500).send({ message: "Failed to update profile" });
+            }
+        })
         // =====================================================================
         //                           PAYMENT API
         // =====================================================================
@@ -193,7 +215,7 @@ async function run() {
             res.send(result);
         });
 
-        app.get("/lessons", async (req, res) => {
+        app.get("/lessons", async (req, res, ) => {
             const { email } = req.query;
             const query = email ? { authorEmail: email } : {};
 
@@ -221,7 +243,24 @@ async function run() {
             const result = await lessonsCollection.deleteOne({ _id: new ObjectId(id) });
             res.send(result);
         });
-
+        // Premium Lessons count
+        app.get('/premiumLessonsCount', async (req, res) => {
+            try {
+                const count = await lessonsCollection.countDocuments({ accessLevel: "Premium" });
+                res.send({ premiumCount: count });
+            } catch (error) {
+                res.status(500).send({ message: "Server Error" });
+            }
+        });
+        // Free Lessons count
+        app.get('/freeLessonsCount', async (req, res) => {
+            try {
+                const count = await lessonsCollection.countDocuments({ accessLevel: "Free" });
+                res.send({ freeCount: count });
+            } catch (error) {
+                res.status(500).send({ message: "Server Error" });
+            }
+        });
         // =====================================================================
         //                      LOVE REACT (LIKE) SYSTEM
         // =====================================================================
@@ -355,7 +394,8 @@ async function run() {
                 res.send({ favorited: false, totalFavorites: 0 });
             }
         });
-        
+
+        // get favorite full lessons
         app.get('/favoriteFullLessons', async (req, res) => {
             const email = req.query.email;
 
