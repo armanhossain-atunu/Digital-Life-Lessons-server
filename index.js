@@ -61,13 +61,13 @@ async function run() {
         //                           USER ROUTES
         // =====================================================================
 
-        app.post('/users', verifyToken, async (req, res, next) => {
+        app.post('/users',  async (req, res, next) => {
             const user = req.body;
             const result = await userCollection.insertOne(user);
             res.send(result);
         });
 
-        app.get('/users', verifyToken, async (req, res, next) => {
+        app.get('/users',  async (req, res, next) => {
             const result = await userCollection.find().toArray();
             res.send(result);
         });
@@ -106,7 +106,7 @@ async function run() {
                                 unit_amount: amount,
                                 product_data: {
                                     name: paymentInfo.name,
-                                    
+
                                 },
                             },
                             quantity: paymentInfo.quantity || 1,
@@ -115,7 +115,7 @@ async function run() {
                     customer_email: paymentInfo.customer?.email,
                     payment_method_types: ["card"],
                     mode: "payment",
-                    success_url: `${process.env.CLIENT_URL}/payment-success`,
+                    success_url: `${process.env.CLIENT_URL}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
                     cancel_url: `${process.env.CLIENT_URL}/payment-cancel`,
                     metadata: {
                         lessonId: paymentInfo.lessonId,
@@ -128,6 +128,58 @@ async function run() {
             } catch (error) {
                 console.error(error);
                 res.status(500).send({ message: "Payment Error", error: error.message });
+            }
+        });
+        //====================================================================
+        //                    verify payment using session id
+        //====================================================================
+        app.get("/verify-payment", async (req, res) => {
+            try {
+                const { session_id } = req.query;
+
+                if (!session_id) {
+                    return res.status(400).send({
+                        success: false,
+                        message: "Payment session ID is missing. Please try again.",
+                    });
+                }
+
+                // Retrieve session from Stripe
+                const session = await stripe.checkout.sessions.retrieve(session_id);
+
+                if (!session) {
+                    return res.status(404).send({
+                        success: false,
+                        message: "Payment session not found.",
+                    });
+                }
+
+                // Payment status check
+                const isPaid = session.payment_status === "paid";
+
+                if (isPaid) {
+                    res.send({
+                        success: true,
+                        message: "Payment successful! Thank you for your purchase.",
+                        lessonId: session.metadata.lessonId,
+                        customerEmail: session.metadata.customerEmail,
+                    });
+                } else {
+                    res.send({
+                        success: false,
+                        message: "Payment not completed or was canceled.",
+                        lessonId: session.metadata.lessonId,
+                        customerEmail: session.metadata.customerEmail,
+                    });
+                }
+
+            } catch (error) {
+                console.error("Verify Payment Error:", error.message);
+
+                res.status(500).send({
+                    success: false,
+                    message: "Oops! Something went wrong while verifying payment. Please try again.",
+                });
             }
         });
 
@@ -303,6 +355,25 @@ async function run() {
                 res.send({ favorited: false, totalFavorites: 0 });
             }
         });
+        
+        app.get('/favoriteFullLessons', async (req, res) => {
+            const email = req.query.email;
+
+            // Step 1: find favorite records
+            const favorites = await favoriteCollection.find({
+                favoritedBy: email
+            }).toArray();
+
+            // Step 2: extract lesson ids
+            const lessonIds = favorites.map(f => new ObjectId(f.lessonId));
+
+            // Step 3: find lessons
+            const result = await lessonsCollection.find({
+                _id: { $in: lessonIds }
+            }).toArray();
+
+            res.send(result);
+        });
 
         // =====================================================================
         //                      COMMENTS SYSTEM
@@ -324,7 +395,7 @@ async function run() {
             res.send(comments);
         });
 
-    } finally {}
+    } finally { }
 }
 
 run().catch(console.dir);
