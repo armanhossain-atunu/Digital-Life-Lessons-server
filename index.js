@@ -32,26 +32,26 @@ admin.initializeApp({
 
 
 // firebase auth
-// const verifyToken = async (req, res, next) => {
-//     const authorization = req.headers.authorization;
-//     //  const token = authorization.split(" ")[1];
-//     //  console.log(token)
-//     if (!authorization) {
-//         return res.status(401).send({
-//             message: "Unauthorized access. Token Not Found",
-//         });
-//     }
-//     const token = authorization.split(" ")[1];
-//     try {
-//         const decode = await admin.auth().verifyIdToken(token);
-//         console.log(decode);
-//         next();
-//     } catch (error) {
-//         res.status(401).send({
-//             message: "Unauthorized access",
-//         });
-//     }
-// };
+const verifyToken = async (req, res, next) => {
+    const authorization = req.headers.authorization;
+    //  const token = authorization.split(" ")[1];
+    //  console.log(token)
+    if (!authorization) {
+        return res.status(401).send({
+            message: "Unauthorized access. Token Not Found",
+        });
+    }
+    const token = authorization.split(" ")[1];
+    try {
+        const decode = await admin.auth().verifyIdToken(token);
+        console.log(decode);
+        next();
+    } catch (error) {
+        res.status(401).send({
+            message: "Unauthorized access",
+        });
+    }
+};
 
 async function run() {
     try {
@@ -63,18 +63,27 @@ async function run() {
         const commentCollection = digital_life_lessons_db.collection('Comments')
         const loveReactCollection = digital_life_lessons_db.collection('LoveReact')
         const favoriteCollection = digital_life_lessons_db.collection('Favorite')
-        const sharedCollection = digital_life_lessons_db.collection('Shared')
 
+        // ========================================================================
+        //             users create Api
+        // ========================================================================
 
-        // users Api
-        app.post('/users', async (req, res) => {
+        app.post('/users', verifyToken, async (req, next, res ) => {
             const user = req.body;
-            user.role = "user";
-            user.createdAt = new Date();
             const result = await userCollection.insertOne(user);
             res.send(result)
         });
-        // get all users
+        // ========================================================================
+        //                    get all users
+        // ========================================================================
+
+        app.get('/users', verifyToken, async (req,next, res) => {
+            const result = await userCollection.find().toArray();
+            res.send(result)
+        })
+        // ========================================================================
+        //                    get  users email
+        // ========================================================================
         app.get('/users', async (req, res) => {
             try {
                 const email = req.query.email;
@@ -85,16 +94,20 @@ async function run() {
                 res.status(500).send({ message: "Server error", error });
             }
         });
+        // ========================================================================
+        //               add lessons post
+        // ========================================================================
 
-        // add lessons post
         app.post('/add_lessons', async (req, res) => {
             const lesson = req.body;
             console.log(lesson);
             const result = await addLessonsCollection.insertOne(lesson);
             res.send(result)
         });
+        // ========================================================================
+        //             all lessons get by email
+        // ========================================================================
 
-        // all lessons get by email
         app.get("/lessons", async (req, res) => {
             const query = {}
             const { email } = req.query;
@@ -105,22 +118,29 @@ async function run() {
             const result = await cursor.toArray();
             res.send(result);
         });
-        // all lessons get by lesson id
+        // ========================================================================
+        //                 all lessons get by lesson id
+        // ========================================================================
+
         app.get("/lessons/:id", async (req, res) => {
             const id = req.params;
             const query = { _id: new ObjectId(id) };
             const result = await addLessonsCollection.findOne(query);
             res.send(result);
         });
+        // ========================================================================
+        //                   lesson delete by id
+        // ========================================================================
 
-        // lesson delete by id
         app.delete('/lessons/:id', async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) };
             const result = await addLessonsCollection.deleteOne(query);
             res.send(result);
         });
-        // love react
+        // ========================================================================
+        //                           get love react
+        // ========================================================================
         app.post('/loveReact/:lessonId', async (req, res) => {
             const lessonId = req.params.lessonId;
             const userEmail = req.body.userEmail;
@@ -170,8 +190,10 @@ async function run() {
                 totalLikes: updated.likedBy.length
             });
         });
+        // ========================================================================
+        //                        Get love react status
+        // ========================================================================
 
-        // Get love react status
         app.get('/loveReact/:lessonId', async (req, res) => {
             const lessonId = req.params.lessonId;
             const userEmail = req.query.userEmail;
@@ -190,8 +212,10 @@ async function run() {
                 totalLikes: doc.likedBy.length
             });
         });
+        // ========================================================================
+        //                        favorite react status post
+        // ========================================================================
 
-        // favorite react status post
         app.post('/favorite/:lessonId', async (req, res) => {
             try {
                 const lessonId = req.params.lessonId;
@@ -246,8 +270,9 @@ async function run() {
                 res.status(500).send({ message: "Internal Server Error" });
             }
         });
-
-        // check favorite
+        // ========================================================================
+        //                      get check favorite
+        // ========================================================================
         app.get('/checkFavorite', async (req, res) => {
             try {
                 const lessonId = req.query.lessonId;
