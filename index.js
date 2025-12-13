@@ -56,13 +56,23 @@ async function run() {
         const commentCollection = db.collection('Comments');
         const loveReactCollection = db.collection('LoveReact');
         const favoriteCollection = db.collection('Favorite');
+        const reportsCollection = db.collection('Reports');
+
 
         // =====================================================================
         //                           USER ROUTES
         // =====================================================================
 
-        app.post('/users', async (req, res, next) => {
+
+        app.post('/users', async (req, res) => {
             const user = req.body;
+
+            const existingUser = await userCollection.findOne({ email: user.email });
+
+            if (existingUser) {
+                return res.send({ message: "User already exists" });
+            }
+
             const result = await userCollection.insertOne(user);
             res.send(result);
         });
@@ -71,18 +81,12 @@ async function run() {
             const result = await userCollection.find().toArray();
             res.send(result);
         });
-
-        // get user by email
         app.get('/user', async (req, res) => {
-            try {
-                const email = req.query.email;
-                const user = await userCollection.findOne({ email });
-                res.send(user);
-            } catch (error) {
-                res.status(500).send({ message: "Server error" });
-            }
+            const email = req.query.email;
+            const user = await userCollection.findOne({ email });
+            res.send(user); // object or null
         });
-        // Update user profile
+
         // Update user profile
         app.put("/updateUserProfile", async (req, res) => {
             const { email, displayName, photoURL } = req.body;
@@ -109,14 +113,11 @@ async function run() {
         //                           PAYMENT API
         // =====================================================================
 
+
         app.post("/create-checkout-session", async (req, res) => {
             try {
                 const paymentInfo = req.body;
-                console.log("Incoming payment:", paymentInfo);
-
-                if (!paymentInfo.price) {
-                    return res.status(400).send({ message: "Price is required" });
-                }
+                if (!paymentInfo.price) return res.status(400).send({ message: "Price is required" });
 
                 const amount = Number(paymentInfo.price) * 100;
 
@@ -126,10 +127,7 @@ async function run() {
                             price_data: {
                                 currency: "USD",
                                 unit_amount: amount,
-                                product_data: {
-                                    name: paymentInfo.name,
-
-                                },
+                                product_data: { name: paymentInfo.name },
                             },
                             quantity: paymentInfo.quantity || 1,
                         },
@@ -142,66 +140,50 @@ async function run() {
                     metadata: {
                         lessonId: paymentInfo.lessonId,
                         customerEmail: paymentInfo.customer?.email,
-                    }
+                    },
                 });
 
                 res.send({ url: session.url });
-
             } catch (error) {
                 console.error(error);
                 res.status(500).send({ message: "Payment Error", error: error.message });
             }
         });
+
         //====================================================================
         //                    verify payment using session id
         //====================================================================
+
         app.get("/verify-payment", async (req, res) => {
             try {
                 const { session_id } = req.query;
+                if (!session_id) return res.status(400).send({ success: false, message: "Session ID missing" });
 
-                if (!session_id) {
-                    return res.status(400).send({
-                        success: false,
-                        message: "Payment session ID is missing. Please try again.",
-                    });
-                }
-
-                // Retrieve session from Stripe
                 const session = await stripe.checkout.sessions.retrieve(session_id);
+                if (!session) return res.status(404).send({ success: false, message: "Session not found" });
 
-                if (!session) {
-                    return res.status(404).send({
-                        success: false,
-                        message: "Payment session not found.",
-                    });
-                }
-
-                // Payment status check
                 const isPaid = session.payment_status === "paid";
+                const customerEmail = session.metadata.customerEmail;
 
                 if (isPaid) {
+                    // Update user plan to premium
+                    await userCollection.updateOne(
+                        { email: customerEmail },
+                        { $set: { plan: "premium" } }
+                    );
+
                     res.send({
                         success: true,
-                        message: "Payment successful! Thank you for your purchase.",
+                        message: "Payment successful! Your plan is now Premium.",
                         lessonId: session.metadata.lessonId,
-                        customerEmail: session.metadata.customerEmail,
+                        customerEmail,
                     });
                 } else {
-                    res.send({
-                        success: false,
-                        message: "Payment not completed or was canceled.",
-                        lessonId: session.metadata.lessonId,
-                        customerEmail: session.metadata.customerEmail,
-                    });
+                    res.send({ success: false, message: "Payment not completed", lessonId: session.metadata.lessonId, customerEmail });
                 }
-
             } catch (error) {
-                console.error("Verify Payment Error:", error.message);
-
-                res.status(500).send({
-                    success: false,
-                    message: "Oops! Something went wrong while verifying payment. Please try again.",
-                });
+                console.error(error);
+                res.status(500).send({ success: false, message: "Verify payment failed" });
             }
         });
 
@@ -215,7 +197,7 @@ async function run() {
             res.send(result);
         });
 
-        app.get("/lessons", async (req, res, ) => {
+        app.get("/lessons", async (req, res,) => {
             const { email } = req.query;
             const query = email ? { authorEmail: email } : {};
 
@@ -261,6 +243,58 @@ async function run() {
                 res.status(500).send({ message: "Server Error" });
             }
         });
+        // =====================================================================
+        //                      Reports Lessons
+        // =====================================================================
+
+        app.post("/lessons/report/:id", async (req, res) => {
+            const lessonId = req.params.id;
+            const { reason, reporterEmail } = req.body;
+
+            if (!reason || !reporterEmail) {
+                return res.status(400).send({ message: "Reason and reporterEmail are required" });
+            }
+
+            // Duplicate report check
+            const alreadyReported = await lessonsCollection.findOne({
+                _id: new ObjectId(lessonId),
+                "reports.reporterEmail": reporterEmail
+            });
+
+            if (alreadyReported) {
+                return res.status(409).send({
+                    message: "You already reported this lesson"
+                });
+            }
+
+            const report = {
+                reason,
+                reporterEmail,
+                reportedAt: new Date()
+            };
+
+            const result = await lessonsCollection.updateOne(
+                { _id: new ObjectId(lessonId) },
+                {
+                    $push: { reports: report },
+                    $inc: { reportCount: 1 }
+                }
+            );
+
+            res.send({
+                success: true,
+                message: "Lesson reported successfully",
+                result
+            });
+        });
+
+        app.get('/reports', async (req, res) => {
+            const result = await reportsCollection.find().toArray();
+            res.send(result);
+        })
+
+
+
         // =====================================================================
         //                      LOVE REACT (LIKE) SYSTEM
         // =====================================================================
@@ -434,6 +468,7 @@ async function run() {
 
             res.send(comments);
         });
+
 
     } finally { }
 }
