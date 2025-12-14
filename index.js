@@ -248,51 +248,114 @@ async function run() {
         // =====================================================================
 
         app.post("/lessons/report/:id", async (req, res) => {
-            const lessonId = req.params.id;
-            const { reason, reporterEmail } = req.body;
+            try {
+                const lessonId = req.params.id;
+                const { reason, reporterEmail } = req.body;
 
-            if (!reason || !reporterEmail) {
-                return res.status(400).send({ message: "Reason and reporterEmail are required" });
-            }
+                // Basic validation
+                if (!ObjectId.isValid(lessonId)) {
+                    return res.status(400).send({ message: "Invalid lesson ID" });
+                }
 
-            // Duplicate report check
-            const alreadyReported = await lessonsCollection.findOne({
-                _id: new ObjectId(lessonId),
-                "reports.reporterEmail": reporterEmail
-            });
+                if (!reason || !reporterEmail) {
+                    return res.status(400).send({
+                        message: "Reason and reporterEmail are required",
+                    });
+                }
 
-            if (alreadyReported) {
-                return res.status(409).send({
-                    message: "You already reported this lesson"
+                const lesson = await lessonsCollection.findOne({
+                    _id: new ObjectId(lessonId),
                 });
-            }
 
-            const report = {
-                reason,
-                reporterEmail,
-                reportedAt: new Date()
-            };
+                // Lesson not found
+                if (!lesson) {
+                    return res.status(404).send({ message: "Lesson not found" });
+                }
+
+                // Duplicate report check
+                const alreadyReported = lesson.reports?.some(
+                    (r) => r.reporterEmail === reporterEmail
+                );
+
+                if (alreadyReported) {
+                    return res.status(409).send({
+                        message: "You already reported this lesson",
+                    });
+                }
+
+                const report = {
+                    reason,
+                    reporterEmail,
+                    reportedAt: new Date(),
+                };
+
+                const result = await lessonsCollection.updateOne(
+                    { _id: new ObjectId(lessonId) },
+                    {
+                        $push: { reports: report },
+                        $inc: { reportCount: 1 },
+                    }
+                );
+
+                res.send({
+                    success: true,
+                    message: "Lesson reported successfully",
+                    result,
+                });
+            } catch (error) {
+                console.error("Report error:", error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
+
+
+        app.get("/admin/reported-lessons", async (req, res) => {
+            try {
+                const lessons = await lessonsCollection
+                    .find({ reportCount: { $gt: 0 } })
+                    .project({
+                        title: 1,
+                        reports: 1,
+                        reportCount: 1,
+                    })
+                    .toArray();
+
+                res.send(lessons);
+            } catch (error) {
+                res.status(500).send({ message: "Failed to load reports" });
+            }
+        });
+
+        app.patch("/admin/lessons/:lessonId/remove-report", async (req, res) => {
+            const { lessonId } = req.params;
+            const { reporterEmail } = req.body;
+
+            if (!ObjectId.isValid(lessonId)) {
+                return res.status(400).send({ message: "Invalid lesson ID" });
+            }
 
             const result = await lessonsCollection.updateOne(
                 { _id: new ObjectId(lessonId) },
                 {
-                    $push: { reports: report },
-                    $inc: { reportCount: 1 }
+                    $pull: { reports: { reporterEmail } },
+                    $inc: { reportCount: -1 },
                 }
             );
 
-            res.send({
-                success: true,
-                message: "Lesson reported successfully",
-                result
-            });
+            res.send(result);
         });
 
-        app.get('/reports', async (req, res) => {
-            const result = await reportsCollection.find().toArray();
-            res.send(result);
-        })
-
+        // app.get("/lessons/reports", async (req, res) => {
+        //     try {
+        //         const reports = await lessonsCollection
+        //             .find({ "reports.reporterEmail": { $exists: true } })
+        //             .toArray();
+        //         res.send(reports);
+        //     } catch (error) {
+        //         console.error("Error fetching reports:", error);
+        //         res.status(500).send({ message: "Server error" });
+        //     }
+        // });
 
 
         // =====================================================================
