@@ -56,6 +56,7 @@ async function run() {
         const commentCollection = db.collection('Comments');
         const loveReactCollection = db.collection('LoveReact');
         const favoriteCollection = db.collection('Favorite');
+        const paymentCollection = db.collection('Payments');
         const reportsCollection = db.collection('Reports');
 
 
@@ -84,8 +85,34 @@ async function run() {
         app.get('/user', async (req, res) => {
             const email = req.query.email;
             const user = await userCollection.findOne({ email });
-            res.send(user); // object or null
+            res.send(user);
         });
+
+        // Update user plan (Free / Premium)
+        app.put("/updateUserPlan", async (req, res) => {
+            const { email, plan } = req.body;
+
+            if (!email || !plan) {
+                return res.status(400).send({ message: "Email and plan are required" });
+            }
+
+            try {
+                // Update user plan
+                await userCollection.updateOne(
+                    { email },
+                    { $set: { plan } }
+                );
+
+                // Fetch updated user
+                const updatedUser = await userCollection.findOne({ email });
+
+                res.send({ success: true, updatedUser });
+            } catch (error) {
+                console.error("Plan Update Error:", error.message);
+                res.status(500).send({ message: "Failed to update plan" });
+            }
+        });
+
 
         // Update user profile
         app.put("/updateUserProfile", async (req, res) => {
@@ -140,6 +167,8 @@ async function run() {
                     metadata: {
                         lessonId: paymentInfo.lessonId,
                         customerEmail: paymentInfo.customer?.email,
+                        customerName: paymentInfo.customer?.name,
+
                     },
                 });
 
@@ -154,38 +183,165 @@ async function run() {
         //                    verify payment using session id
         //====================================================================
 
-        app.get("/verify-payment", async (req, res) => {
-            try {
-                const { session_id } = req.query;
-                if (!session_id) return res.status(400).send({ success: false, message: "Session ID missing" });
+        // app.get("/verify-payment", async (req, res) => {
+        //     try {
+        //         const { session_id } = req.query;
+        //         if (!session_id) return res.status(400).send({ success: false, message: "Session ID missing" });
 
-                const session = await stripe.checkout.sessions.retrieve(session_id);
-                if (!session) return res.status(404).send({ success: false, message: "Session not found" });
+        //         const session = await stripe.checkout.sessions.retrieve(session_id);
+        //         if (!session) return res.status(404).send({ success: false, message: "Session not found" });
 
-                const isPaid = session.payment_status === "paid";
-                const customerEmail = session.metadata.customerEmail;
+        //         const isPaid = session.payment_status === "paid";
+        //         const customerEmail = session.metadata.customerEmail;
 
-                if (isPaid) {
-                    // Update user plan to premium
-                    await userCollection.updateOne(
-                        { email: customerEmail },
-                        { $set: { plan: "premium" } }
-                    );
+        //         if (isPaid) {
+        //             // Update user plan to premium
+        //             await userCollection.updateOne(
+        //                 { email: customerEmail },
+        //                 { $set: { plan: "premium" } }
+        //             );
 
-                    res.send({
-                        success: true,
-                        message: "Payment successful! Your plan is now Premium.",
-                        lessonId: session.metadata.lessonId,
-                        customerEmail,
-                    });
-                } else {
-                    res.send({ success: false, message: "Payment not completed", lessonId: session.metadata.lessonId, customerEmail });
-                }
-            } catch (error) {
-                console.error(error);
-                res.status(500).send({ success: false, message: "Verify payment failed" });
-            }
-        });
+        //             res.send({
+        //                 success: true,
+        //                 message: "Payment successful! Your plan is now Premium.",
+        //                 lessonId: session.metadata.lessonId,
+        //                 customerEmail,
+        //             });
+        //         } else {
+        //             res.send({ success: false, message: "Payment not completed", lessonId: session.metadata.lessonId, customerEmail });
+        //         }
+        //     } catch (error) {
+        //         console.error(error);
+        //         res.status(500).send({ success: false, message: "Verify payment failed" });
+        //     }
+        // });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+app.get("/verify-payment", async (req, res) => {
+  try {
+    const { session_id } = req.query;
+    if (!session_id) {
+      return res.status(400).send({
+        success: false,
+        message: "Session ID missing",
+      });
+    }
+
+    // 1️⃣ Retrieve Stripe session
+    const session = await stripe.checkout.sessions.retrieve(session_id);
+    if (!session) {
+      return res.status(404).send({
+        success: false,
+        message: "Session not found",
+      });
+    }
+
+    const isPaid = session.payment_status === "paid";
+    const customerEmail = session.metadata.customerEmail;
+    const lessonId = session.metadata.lessonId || null;
+    const transactionId = session.payment_intent; // 🔑 UNIQUE
+
+    if (!isPaid) {
+      return res.send({
+        success: false,
+        message: "Payment not completed",
+        lessonId,
+        customerEmail,
+      });
+    }
+
+    // 2️⃣ DUPLICATE PAYMENT CHECK
+    const existingPayment = await paymentCollection.findOne({ transactionId });
+
+    if (existingPayment) {
+      return res.send({
+        success: true,
+        message: "Payment already verified",
+        lessonId: existingPayment.lessonId,
+        customerEmail,
+      });
+    }
+
+    // 3️⃣ SAVE PAYMENT TO DB
+    await paymentCollection.insertOne({
+      transactionId,
+      customerEmail,
+      lessonId,
+      amount: session.amount_total / 100,
+      currency: session.currency,
+      paymentMethod: "card",
+      status: "success",
+      createdAt: new Date(),
+    });
+
+    // 4️⃣ UPDATE USER PLAN → PREMIUM
+    await userCollection.updateOne(
+      { email: customerEmail, plan: { $ne: "premium" } },
+      {
+        $set: {
+          plan: "premium",
+          isPremium: true,
+          premiumSince: new Date(),
+        },
+      }
+    );
+
+    // 5️⃣ RESPONSE
+    res.send({
+      success: true,
+      message: "Payment successful! Your plan is now Premium.",
+      lessonId,
+      customerEmail,
+    });
+  } catch (error) {
+    console.error("Verify payment error:", error);
+    res.status(500).send({
+      success: false,
+      message: "Verify payment failed",
+    });
+  }
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         // =====================================================================
         //                           LESSON ROUTES
@@ -543,7 +699,7 @@ async function run() {
                 res.status(500).send({ message: "Internal Server Error" });
             }
         });
-// grt favorite
+        // grt favorite
         app.get('/checkFavorite', async (req, res) => {
             try {
                 const lessonId = req.query.lessonId;
