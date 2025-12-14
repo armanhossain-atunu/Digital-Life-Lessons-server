@@ -359,6 +359,80 @@ async function run() {
 
 
         // =====================================================================
+        //                      REVIEWS
+        // =====================================================================
+
+
+
+        app.post("/lessons/:id/review", async (req, res) => {
+            try {
+                const lessonId = req.params.id;
+                const { rating, comment, reviewerEmail } = req.body;
+
+                if (!rating || !comment || !reviewerEmail) {
+                    return res.status(400).send({ message: "All fields required" });
+                }
+
+                const lesson = await lessonsCollection.findOne({
+                    _id: new ObjectId(lessonId),
+                });
+
+                if (!lesson) {
+                    return res.status(404).send({ message: "Lesson not found" });
+                }
+
+                //  Duplicate review check
+                const alreadyReviewed = lesson.reviews?.some(
+                    (r) => r.reviewerEmail === reviewerEmail
+                );
+
+                if (alreadyReviewed) {
+                    return res.status(409).send({
+                        message: "You already reviewed this lesson",
+                    });
+                }
+
+                const review = {
+                    rating: Number(rating),
+                    comment,
+                    reviewerEmail,
+                    createdAt: new Date(),
+                };
+
+                const totalRating =
+                    (lesson.averageRating || 0) * (lesson.reviewCount || 0) +
+                    Number(rating);
+
+                const newReviewCount = (lesson.reviewCount || 0) + 1;
+
+                const averageRating = totalRating / newReviewCount;
+
+                await lessonsCollection.updateOne(
+                    { _id: new ObjectId(lessonId) },
+                    {
+                        $push: { reviews: review },
+                        $set: { averageRating },
+                        $inc: { reviewCount: 1 },
+                    }
+                );
+
+                res.send({ success: true, message: "Review added" });
+            } catch (err) {
+                res.status(500).send({ message: "Server error" });
+            }
+        });
+        // get reviews
+        app.get("/lessons/:id/reviews", async (req, res) => {
+            const lesson = await lessonsCollection.findOne(
+                { _id: new ObjectId(req.params.id) },
+                { projection: { reviews: 1, averageRating: 1, reviewCount: 1 } }
+            );
+
+            res.send(lesson || {});
+        });
+
+
+        // =====================================================================
         //                      LOVE REACT (LIKE) SYSTEM
         // =====================================================================
 
@@ -469,7 +543,7 @@ async function run() {
                 res.status(500).send({ message: "Internal Server Error" });
             }
         });
-
+// grt favorite
         app.get('/checkFavorite', async (req, res) => {
             try {
                 const lessonId = req.query.lessonId;
@@ -531,7 +605,6 @@ async function run() {
 
             res.send(comments);
         });
-
 
     } finally { }
 }
