@@ -241,90 +241,90 @@ async function run() {
 
 
 
-app.get("/verify-payment", async (req, res) => {
-  try {
-    const { session_id } = req.query;
-    if (!session_id) {
-      return res.status(400).send({
-        success: false,
-        message: "Session ID missing",
-      });
-    }
+        app.get("/verify-payment", async (req, res) => {
+            try {
+                const { session_id } = req.query;
+                if (!session_id) {
+                    return res.status(400).send({
+                        success: false,
+                        message: "Session ID missing",
+                    });
+                }
 
-    // 1️⃣ Retrieve Stripe session
-    const session = await stripe.checkout.sessions.retrieve(session_id);
-    if (!session) {
-      return res.status(404).send({
-        success: false,
-        message: "Session not found",
-      });
-    }
+                // 1️⃣ Retrieve Stripe session
+                const session = await stripe.checkout.sessions.retrieve(session_id);
+                if (!session) {
+                    return res.status(404).send({
+                        success: false,
+                        message: "Session not found",
+                    });
+                }
 
-    const isPaid = session.payment_status === "paid";
-    const customerEmail = session.metadata.customerEmail;
-    const lessonId = session.metadata.lessonId || null;
-    const transactionId = session.payment_intent; // 🔑 UNIQUE
+                const isPaid = session.payment_status === "paid";
+                const customerEmail = session.metadata.customerEmail;
+                const lessonId = session.metadata.lessonId || null;
+                const transactionId = session.payment_intent; // 🔑 UNIQUE
 
-    if (!isPaid) {
-      return res.send({
-        success: false,
-        message: "Payment not completed",
-        lessonId,
-        customerEmail,
-      });
-    }
+                if (!isPaid) {
+                    return res.send({
+                        success: false,
+                        message: "Payment not completed",
+                        lessonId,
+                        customerEmail,
+                    });
+                }
 
-    // 2️⃣ DUPLICATE PAYMENT CHECK
-    const existingPayment = await paymentCollection.findOne({ transactionId });
+                // 2️⃣ DUPLICATE PAYMENT CHECK
+                const existingPayment = await paymentCollection.findOne({ transactionId });
 
-    if (existingPayment) {
-      return res.send({
-        success: true,
-        message: "Payment already verified",
-        lessonId: existingPayment.lessonId,
-        customerEmail,
-      });
-    }
+                if (existingPayment) {
+                    return res.send({
+                        success: true,
+                        message: "Payment already verified",
+                        lessonId: existingPayment.lessonId,
+                        customerEmail,
+                    });
+                }
 
-    // 3️⃣ SAVE PAYMENT TO DB
-    await paymentCollection.insertOne({
-      transactionId,
-      customerEmail,
-      lessonId,
-      amount: session.amount_total / 100,
-      currency: session.currency,
-      paymentMethod: "card",
-      status: "success",
-      createdAt: new Date(),
-    });
+                // 3️⃣ SAVE PAYMENT TO DB
+                await paymentCollection.insertOne({
+                    transactionId,
+                    customerEmail,
+                    lessonId,
+                    amount: session.amount_total / 100,
+                    currency: session.currency,
+                    paymentMethod: "card",
+                    status: "success",
+                    createdAt: new Date(),
+                });
 
-    // 4️⃣ UPDATE USER PLAN → PREMIUM
-    await userCollection.updateOne(
-      { email: customerEmail, plan: { $ne: "premium" } },
-      {
-        $set: {
-          plan: "premium",
-          isPremium: true,
-          premiumSince: new Date(),
-        },
-      }
-    );
+                // 4️⃣ UPDATE USER PLAN → PREMIUM
+                await userCollection.updateOne(
+                    { email: customerEmail, plan: { $ne: "premium" } },
+                    {
+                        $set: {
+                            plan: "premium",
+                            isPremium: true,
+                            premiumSince: new Date(),
+                        },
+                    }
+                );
 
-    // 5️⃣ RESPONSE
-    res.send({
-      success: true,
-      message: "Payment successful! Your plan is now Premium.",
-      lessonId,
-      customerEmail,
-    });
-  } catch (error) {
-    console.error("Verify payment error:", error);
-    res.status(500).send({
-      success: false,
-      message: "Verify payment failed",
-    });
-  }
-});
+                // 5️⃣ RESPONSE
+                res.send({
+                    success: true,
+                    message: "Payment successful! Your plan is now Premium.",
+                    lessonId,
+                    customerEmail,
+                });
+            } catch (error) {
+                console.error("Verify payment error:", error);
+                res.status(500).send({
+                    success: false,
+                    message: "Verify payment failed",
+                });
+            }
+        });
 
 
 
@@ -364,7 +364,17 @@ app.get("/verify-payment", async (req, res) => {
 
             res.send(result);
         });
-
+        app.get("/lessons/public", async (req, res) => {
+            try {
+                const query = { isPublic: "true" };
+                const lessons = await lessonsCollection.find(query).toArray();
+                const total = await lessonsCollection.countDocuments(query);
+                res.send({ total, lessons });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Internal Server Error" });
+            }
+        });
         app.get("/lessons/:id", async (req, res) => {
             try {
                 const id = req.params.id;
@@ -399,6 +409,12 @@ app.get("/verify-payment", async (req, res) => {
                 res.status(500).send({ message: "Server Error" });
             }
         });
+
+
+
+
+
+
         // =====================================================================
         //                      Reports Lessons
         // =====================================================================
