@@ -139,8 +139,6 @@ async function run() {
         // =====================================================================
         //                           PAYMENT API
         // =====================================================================
-
-
         app.post("/create-checkout-session", async (req, res) => {
             try {
                 const paymentInfo = req.body;
@@ -182,65 +180,6 @@ async function run() {
         //====================================================================
         //                    verify payment using session id
         //====================================================================
-
-        // app.get("/verify-payment", async (req, res) => {
-        //     try {
-        //         const { session_id } = req.query;
-        //         if (!session_id) return res.status(400).send({ success: false, message: "Session ID missing" });
-
-        //         const session = await stripe.checkout.sessions.retrieve(session_id);
-        //         if (!session) return res.status(404).send({ success: false, message: "Session not found" });
-
-        //         const isPaid = session.payment_status === "paid";
-        //         const customerEmail = session.metadata.customerEmail;
-
-        //         if (isPaid) {
-        //             // Update user plan to premium
-        //             await userCollection.updateOne(
-        //                 { email: customerEmail },
-        //                 { $set: { plan: "premium" } }
-        //             );
-
-        //             res.send({
-        //                 success: true,
-        //                 message: "Payment successful! Your plan is now Premium.",
-        //                 lessonId: session.metadata.lessonId,
-        //                 customerEmail,
-        //             });
-        //         } else {
-        //             res.send({ success: false, message: "Payment not completed", lessonId: session.metadata.lessonId, customerEmail });
-        //         }
-        //     } catch (error) {
-        //         console.error(error);
-        //         res.status(500).send({ success: false, message: "Verify payment failed" });
-        //     }
-        // });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
         app.get("/verify-payment", async (req, res) => {
             try {
                 const { session_id } = req.query;
@@ -251,7 +190,7 @@ async function run() {
                     });
                 }
 
-                // 1️⃣ Retrieve Stripe session
+                // Retrieve Stripe session
                 const session = await stripe.checkout.sessions.retrieve(session_id);
                 if (!session) {
                     return res.status(404).send({
@@ -263,7 +202,7 @@ async function run() {
                 const isPaid = session.payment_status === "paid";
                 const customerEmail = session.metadata.customerEmail;
                 const lessonId = session.metadata.lessonId || null;
-                const transactionId = session.payment_intent; // 🔑 UNIQUE
+                const transactionId = session.payment_intent;
 
                 if (!isPaid) {
                     return res.send({
@@ -274,7 +213,7 @@ async function run() {
                     });
                 }
 
-                // 2️⃣ DUPLICATE PAYMENT CHECK
+                //  DUPLICATE PAYMENT CHECK
                 const existingPayment = await paymentCollection.findOne({ transactionId });
 
                 if (existingPayment) {
@@ -286,7 +225,7 @@ async function run() {
                     });
                 }
 
-                // 3️⃣ SAVE PAYMENT TO DB
+                //  SAVE PAYMENT TO DB
                 await paymentCollection.insertOne({
                     transactionId,
                     customerEmail,
@@ -298,7 +237,7 @@ async function run() {
                     createdAt: new Date(),
                 });
 
-                // 4️⃣ UPDATE USER PLAN → PREMIUM
+                //  UPDATE USER PLAN → PREMIUM
                 await userCollection.updateOne(
                     { email: customerEmail, plan: { $ne: "premium" } },
                     {
@@ -310,7 +249,7 @@ async function run() {
                     }
                 );
 
-                // 5️⃣ RESPONSE
+                //  RESPONSE
                 res.send({
                     success: true,
                     message: "Payment successful! Your plan is now Premium.",
@@ -327,32 +266,22 @@ async function run() {
         });
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        app.get('/Payments', async (req, res) => {
+            const result = await paymentCollection.find().toArray();
+            res.send(result);
+        })
 
 
         // =====================================================================
         //                           LESSON ROUTES
         // =====================================================================
-
+        // add lesson
         app.post('/add_lessons', async (req, res) => {
             const lesson = req.body;
             const result = await lessonsCollection.insertOne(lesson);
             res.send(result);
         });
-
+        // all lessons
         app.get("/lessons", async (req, res,) => {
             const { email } = req.query;
             const query = email ? { authorEmail: email } : {};
@@ -364,6 +293,7 @@ async function run() {
 
             res.send(result);
         });
+        // public lessons
         app.get("/lessons/public", async (req, res) => {
             try {
                 const query = { isPublic: "true" };
@@ -375,6 +305,7 @@ async function run() {
                 res.status(500).send({ message: "Internal Server Error" });
             }
         });
+        // single id
         app.get("/lessons/:id", async (req, res) => {
             try {
                 const id = req.params.id;
@@ -385,7 +316,50 @@ async function run() {
                 res.status(500).send({ message: "Invalid lesson ID" });
             }
         });
+        // update
+        app.patch("/lessons/:id", async (req, res) => {
+            try {
+                const { id } = req.params;
 
+                // invalid id check
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).send({ message: "Invalid lesson id" });
+                }
+
+                const filter = { _id: new ObjectId(id) };
+
+                const updateData = {
+                    title: req.body.title,
+                    description: req.body.description,
+                    access: req.body.access,
+                    updatedAt: new Date(),
+                };
+
+                // optional image
+                if (req.file) {
+                    updateData.image = req.file.path;
+                }
+
+                const result = await lessonsCollection.updateOne(
+                    filter,
+                    { $set: updateData }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).send({ message: "Lesson not found" });
+                }
+
+                res.send({
+                    success: true,
+                    message: "Lesson updated successfully",
+                    result,
+                });
+
+            } catch (error) {
+                res.status(500).send({ message: "Update failed", error });
+            }
+        });
+        // Delete
         app.delete('/lessons/:id', async (req, res) => {
             const id = req.params.id;
             const result = await lessonsCollection.deleteOne({ _id: new ObjectId(id) });
@@ -409,11 +383,6 @@ async function run() {
                 res.status(500).send({ message: "Server Error" });
             }
         });
-
-
-
-
-
 
         // =====================================================================
         //                      Reports Lessons
@@ -479,8 +448,6 @@ async function run() {
                 res.status(500).send({ message: "Server error" });
             }
         });
-
-
         app.get("/admin/reported-lessons", async (req, res) => {
             try {
                 const lessons = await lessonsCollection
@@ -497,7 +464,6 @@ async function run() {
                 res.status(500).send({ message: "Failed to load reports" });
             }
         });
-
         app.patch("/admin/lessons/:lessonId/remove-report", async (req, res) => {
             const { lessonId } = req.params;
             const { reporterEmail } = req.body;
@@ -517,24 +483,10 @@ async function run() {
             res.send(result);
         });
 
-        // app.get("/lessons/reports", async (req, res) => {
-        //     try {
-        //         const reports = await lessonsCollection
-        //             .find({ "reports.reporterEmail": { $exists: true } })
-        //             .toArray();
-        //         res.send(reports);
-        //     } catch (error) {
-        //         console.error("Error fetching reports:", error);
-        //         res.status(500).send({ message: "Server error" });
-        //     }
-        // });
-
 
         // =====================================================================
         //                      REVIEWS
         // =====================================================================
-
-
 
         app.post("/lessons/:id/review", async (req, res) => {
             try {
