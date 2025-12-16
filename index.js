@@ -4,8 +4,8 @@ const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require("dotenv").config();
 const admin = require("firebase-admin");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
-
 const serviceAccount = require("./digital-life-lesson-firebase-adminsdk.json");
+const bcrypt = require("bcrypt");
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -57,27 +57,32 @@ async function run() {
         const loveReactCollection = db.collection('LoveReact');
         const favoriteCollection = db.collection('Favorite');
         const paymentCollection = db.collection('Payments');
-        const reportsCollection = db.collection('Reports');
-
 
         // =====================================================================
         //                           USER ROUTES
         // =====================================================================
 
-
+        // Create new user with password
         app.post('/users', async (req, res) => {
             const user = req.body;
 
             const existingUser = await userCollection.findOne({ email: user.email });
-
             if (existingUser) {
                 return res.send({ message: "User already exists" });
             }
 
-            const result = await userCollection.insertOne(user);
+            // password hash করা
+            const hashedPassword = await bcrypt.hash(user.password, 10);
+
+            const newUser = {
+                ...user,
+                password: hashedPassword,
+                createdAt: new Date().toISOString()
+            };
+
+            const result = await userCollection.insertOne(newUser);
             res.send(result);
         });
-
         app.get('/users', async (req, res, next) => {
             const result = await userCollection.find().toArray();
             res.send(result);
@@ -112,8 +117,6 @@ async function run() {
                 res.status(500).send({ message: "Failed to update plan" });
             }
         });
-
-
         // Update user profile
         app.put("/updateUserProfile", async (req, res) => {
             const { email, displayName, photoURL } = req.body;
@@ -136,6 +139,23 @@ async function run() {
                 res.status(500).send({ message: "Failed to update profile" });
             }
         })
+        // DELETE user by email
+        app.delete('/users/:email', async (req, res) => {
+            const email = req.params.email;
+
+            try {
+                const result = await userCollection.deleteOne({ email: email });
+
+                if (result.deletedCount === 0) {
+                    return res.status(404).send({ message: "User not found" });
+                }
+
+                res.send({ message: "User deleted successfully" });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Failed to delete user" });
+            }
+        });
         // =====================================================================
         //                           PAYMENT API
         // =====================================================================
@@ -264,14 +284,10 @@ async function run() {
                 });
             }
         });
-
-
         app.get('/Payments', async (req, res) => {
             const result = await paymentCollection.find().toArray();
             res.send(result);
         })
-
-
         // =====================================================================
         //                           LESSON ROUTES
         // =====================================================================
@@ -317,48 +333,34 @@ async function run() {
             }
         });
         // update
+
         app.patch("/lessons/:id", async (req, res) => {
-            try {
-                const { id } = req.params;
+            const { id } = req.params;
+            const updatedLesson = req.body;
 
-                // invalid id check
-                if (!ObjectId.isValid(id)) {
-                    return res.status(400).send({ message: "Invalid lesson id" });
-                }
-
-                const filter = { _id: new ObjectId(id) };
-
-                const updateData = {
-                    title: req.body.title,
-                    description: req.body.description,
-                    access: req.body.access,
-                    updatedAt: new Date(),
-                };
-
-                // optional image
-                if (req.file) {
-                    updateData.image = req.file.path;
-                }
-
-                const result = await lessonsCollection.updateOne(
-                    filter,
-                    { $set: updateData }
-                );
-
-                if (result.matchedCount === 0) {
-                    return res.status(404).send({ message: "Lesson not found" });
-                }
-
-                res.send({
-                    success: true,
-                    message: "Lesson updated successfully",
-                    result,
-                });
-
-            } catch (error) {
-                res.status(500).send({ message: "Update failed", error });
+            if (!ObjectId.isValid(id)) {
+                return res.status(400).send({ message: "Invalid lesson ID" });
             }
+
+            const result = await lessonsCollection.updateOne(
+                { _id: new ObjectId(id) },
+                {
+                    $set: {
+                        title: updatedLesson.title,
+                        description: updatedLesson.description,
+                        category: updatedLesson.category,
+                        tone: updatedLesson.tone,
+                        isPublic: updatedLesson.isPublic,
+                        accessLevel: updatedLesson.accessLevel,
+                        image: updatedLesson.image,
+                        updatedAt: new Date(),
+                    },
+                }
+            );
+
+            res.send(result);
         });
+
         // Delete
         app.delete('/lessons/:id', async (req, res) => {
             const id = req.params.id;
@@ -482,8 +484,6 @@ async function run() {
 
             res.send(result);
         });
-
-
         // =====================================================================
         //                      REVIEWS
         // =====================================================================
@@ -554,12 +554,9 @@ async function run() {
 
             res.send(lesson || {});
         });
-
-
         // =====================================================================
         //                      LOVE REACT (LIKE) SYSTEM
         // =====================================================================
-
         app.post('/loveReact/:lessonId', async (req, res) => {
             const lessonId = req.params.lessonId;
             const userEmail = req.body.userEmail;
