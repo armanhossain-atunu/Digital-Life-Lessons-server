@@ -9,8 +9,19 @@ const bcrypt = require("bcrypt");
 const app = express();
 const port = process.env.PORT || 3000;
 
+
+
 // Middleware
-app.use(cors());
+app.use(
+    cors({
+        origin: [
+            'http://localhost:5173',
+            'http://localhost:5174',
+        ],
+        credentials: true,
+        optionSuccessStatus: 200,
+    })
+)
 app.use(express.json());
 
 // MongoDB URI
@@ -284,18 +295,30 @@ async function run() {
                 });
             }
         });
-        app.get('/Payments', async (req, res) => {
-            const result = await paymentCollection.find().toArray();
-            res.send(result);
-        })
+        // get all payments by email
+        app.get('/Payments', verifyToken, async (req, res, next) => {
+            try {
+                const result = await paymentCollection.find().toArray();
+                res.send(result);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Failed to fetch payments" });
+            }
+        });
+
         // =====================================================================
         //                           LESSON ROUTES
         // =====================================================================
-        // add lesson
-        app.post('/add_lessons', async (req, res) => {
-            const lesson = req.body;
-            const result = await lessonsCollection.insertOne(lesson);
-            res.send(result);
+
+        app.post('/add_lessons', verifyToken, async (req, res) => {
+            try {
+                const lesson = req.body;
+                const result = await lessonsCollection.insertOne(lesson);
+                res.status(201).send(result);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Failed to add lesson" });
+            }
         });
         // all lessons
         app.get("/lessons", async (req, res,) => {
@@ -368,7 +391,7 @@ async function run() {
             res.send(result);
         });
         // Premium Lessons count
-        app.get('/premiumLessonsCount', async (req, res) => {
+        app.get('/premiumLessonsCount', verifyToken, async (req, res, next) => {
             try {
                 const count = await lessonsCollection.countDocuments({ accessLevel: "Premium" });
                 res.send({ premiumCount: count });
@@ -377,7 +400,7 @@ async function run() {
             }
         });
         // Free Lessons count
-        app.get('/freeLessonsCount', async (req, res) => {
+        app.get('/freeLessonsCount', verifyToken, async (req, res, next) => {
             try {
                 const count = await lessonsCollection.countDocuments({ accessLevel: "Free" });
                 res.send({ freeCount: count });
@@ -615,7 +638,7 @@ async function run() {
         });
 
         // =====================================================================
-        //                      FAVORITE SYSTEM
+        //                      FAVORITE Dashboard show data
         // =====================================================================
 
         app.post('/favorite/:lessonId', async (req, res) => {
@@ -706,7 +729,15 @@ async function run() {
 
             res.send(result);
         });
-
+        app.get('/totalFavorites',  async (req, res) => {
+            try {
+                const total = await favoriteCollection.countDocuments();
+                res.send({ total });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Failed to count favorites" });
+            }
+        });
         // =====================================================================
         //                      COMMENTS SYSTEM
         // =====================================================================
@@ -717,7 +748,7 @@ async function run() {
             res.send(result);
         });
 
-        app.get('/comments', async (req, res) => {
+        app.get('/comments', verifyToken, async (req, res, next) => {
             const postId = req.query.postId;
             const comments = await commentCollection
                 .find({ postId })
