@@ -445,6 +445,40 @@ async function run() {
                 res.status(500).send({ message: "Failed to load similar lessons" });
             }
         });
+        // GET /lessons sorting
+        app.get("/lessons", async (req, res) => {
+            try {
+                const { category, sort } = req.query;
+
+                let query = {};
+                let sortOption = {};
+
+                // 🔹 category filter
+                if (category) {
+                    query.category = category;
+                }
+
+                // 🔹 sorting
+                if (sort === "newest") {
+                    sortOption = { createdAt: -1 };
+                } else if (sort === "oldest") {
+                    sortOption = { createdAt: 1 };
+                } else if (sort === "az") {
+                    sortOption = { title: 1 };
+                } else if (sort === "za") {
+                    sortOption = { title: -1 };
+                }
+
+                const lessons = await lessonCollection
+                    .find(query)
+                    .sort(sortOption)
+                    .toArray();
+
+                res.send(lessons);
+            } catch (error) {
+                res.status(500).send({ message: "Server error" });
+            }
+        });
 
 
         // =====================================================================
@@ -679,30 +713,43 @@ async function run() {
         //                      FAVORITE Dashboard show data
         // =====================================================================
 
-        app.post('/favorite/:lessonId', async (req, res) => {
+
+
+
+        // TOGGLE FAVORITE (add/remove)
+        app.post("/favorite/:lessonId", async (req, res) => {
             try {
                 const lessonId = req.params.lessonId;
-                const userEmail = req.body.userEmail;
+                const { userEmail, userName } = req.body;
 
-                if (!userEmail) {
-                    return res.status(400).send({ message: "userEmail is required" });
+                if (!userEmail, !userName) {
+                    return res.status(400).send({ message: "userEmail is required", });
                 }
 
                 const lessonObjectId = new ObjectId(lessonId);
-                let doc = await favoriteCollection.findOne({ lessonId: lessonObjectId });
 
-                if (!doc) {
+                const existing = await favoriteCollection.findOne({
+                    lessonId: lessonObjectId,
+                });
+
+                // first time favorite
+                if (!existing) {
                     await favoriteCollection.insertOne({
                         lessonId: lessonObjectId,
-                        favoritedBy: [userEmail]
+                        favoritedBy: [userEmail],
+                        createdAt: new Date(),
                     });
 
-                    return res.send({ favorited: true, totalFavorites: 1 });
+                    return res.send({
+                        favorited: true,
+                        totalFavorites: 1,
+                    });
                 }
 
-                const isFav = doc.favoritedBy.includes(userEmail);
+                // toggle favorite
+                const isFavorited = existing.favoritedBy.includes(userEmail);
 
-                if (isFav) {
+                if (isFavorited) {
                     await favoriteCollection.updateOne(
                         { lessonId: lessonObjectId },
                         { $pull: { favoritedBy: userEmail } }
@@ -714,39 +761,38 @@ async function run() {
                     );
                 }
 
-                const updated = await favoriteCollection.findOne({ lessonId: lessonObjectId });
+                const updated = await favoriteCollection.findOne({
+                    lessonId: lessonObjectId,
+                });
 
                 res.send({
                     favorited: updated.favoritedBy.includes(userEmail),
-                    totalFavorites: updated.favoritedBy.length
+                    totalFavorites: updated.favoritedBy.length,
                 });
-
             } catch (error) {
+                console.error(error);
                 res.status(500).send({ message: "Internal Server Error" });
             }
         });
-        // grt favorite
-        app.get('/checkFavorite', async (req, res) => {
-            try {
-                const lessonId = req.query.lessonId;
-                const userEmail = req.query.userEmail;
 
-                const lessonObjectId = new ObjectId(lessonId);
-                const doc = await favoriteCollection.findOne({ lessonId: lessonObjectId });
 
-                if (!doc) {
-                    return res.send({ favorited: false, totalFavorites: 0 });
-                }
+        // 🔍 INITIAL FAVORITE STATUS
+        app.get("/favorite/:lessonId/:email", async (req, res) => {
+            const { lessonId, email } = req.params;
 
-                res.send({
-                    favorited: doc.favoritedBy.includes(userEmail),
-                    totalFavorites: doc.favoritedBy.length
-                });
+            const doc = await favoriteCollection.findOne({
+                lessonId: new ObjectId(lessonId),
+            });
 
-            } catch (error) {
-                res.send({ favorited: false, totalFavorites: 0 });
-            }
+            res.send({
+                favorited: doc?.favoritedBy.includes(email) || false,
+                totalFavorites: doc?.favoritedBy.length || 0,
+            });
         });
+
+
+
+
 
         // get favorite full lessons
         app.get('/favoriteFullLessons', verifyToken, async (req, res, next) => {
