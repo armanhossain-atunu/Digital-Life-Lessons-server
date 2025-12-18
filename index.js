@@ -75,25 +75,36 @@ async function run() {
 
         // Create new user with password
         app.post('/users', async (req, res) => {
-            const user = req.body;
+            try {
+                const user = req.body;
 
-            const existingUser = await userCollection.findOne({ email: user.email });
-            if (existingUser) {
-                return res.send({ message: "User already exists" });
+                if (!user?.email) {
+                    return res.status(400).send({ message: "Email is required" });
+                }
+
+                const existingUser = await userCollection.findOne({ email: user.email });
+                if (existingUser) {
+                    return res.send({ message: "User already exists" });
+                }
+
+                const newUser = {
+                    name: user.name,
+                    email: user.email,
+                    photoURL: user.photoURL || "",
+                    role: user.role || "user",
+                    plan: user.plan || "free",
+                    createdAt: new Date()
+                };
+
+                const result = await userCollection.insertOne(newUser);
+                res.send(result);
+
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Failed to save user" });
             }
-
-            // password hash করা
-            const hashedPassword = await bcrypt.hash(user.password, 10);
-
-            const newUser = {
-                ...user,
-                password: hashedPassword,
-                createdAt: new Date().toISOString()
-            };
-
-            const result = await userCollection.insertOne(newUser);
-            res.send(result);
         });
+
         app.get('/users', async (req, res, next) => {
             const result = await userCollection.find().toArray();
             res.send(result);
@@ -321,7 +332,7 @@ async function run() {
             }
         });
         // all lessons
-        app.get("/lessons", async (req, res,) => {
+        app.get("/lessons", async (req, res) => {
             const { email } = req.query;
             const query = email ? { authorEmail: email } : {};
 
@@ -357,7 +368,7 @@ async function run() {
         });
         // update
 
-        app.patch("/lessons/:id", async (req, res) => {
+        app.patch("/lessons/:id", verifyToken, async (req, res) => {
             const { id } = req.params;
             const updatedLesson = req.body;
 
@@ -391,7 +402,7 @@ async function run() {
             res.send(result);
         });
         // Premium Lessons count
-        app.get('/premiumLessonsCount', verifyToken, async (req, res, next) => {
+        app.get('/premiumLessonsCount', async (req, res) => {
             try {
                 const count = await lessonsCollection.countDocuments({ accessLevel: "Premium" });
                 res.send({ premiumCount: count });
@@ -400,7 +411,7 @@ async function run() {
             }
         });
         // Free Lessons count
-        app.get('/freeLessonsCount', verifyToken, async (req, res, next) => {
+        app.get('/freeLessonsCount', async (req, res) => {
             try {
                 const count = await lessonsCollection.countDocuments({ accessLevel: "Free" });
                 res.send({ freeCount: count });
@@ -408,6 +419,33 @@ async function run() {
                 res.status(500).send({ message: "Server Error" });
             }
         });
+        // GET /lessons/similar/:id
+        app.get("/lessons/similar/:id", async (req, res) => {
+            try {
+                const { id } = req.params;
+
+                const lesson = await lessonsCollection.findOne({
+                    _id: new ObjectId(id),
+                });
+
+                if (!lesson) {
+                    return res.status(404).send({ message: "Lesson not found" });
+                }
+
+                const similarLessons = await lessonsCollection
+                    .find({
+                        category: lesson.category,
+                        _id: { $ne: lesson._id }, // exclude current lesson
+                    })
+                    .limit(6)
+                    .toArray();
+
+                res.send(similarLessons);
+            } catch (error) {
+                res.status(500).send({ message: "Failed to load similar lessons" });
+            }
+        });
+
 
         // =====================================================================
         //                      Reports Lessons
@@ -711,7 +749,7 @@ async function run() {
         });
 
         // get favorite full lessons
-        app.get('/favoriteFullLessons', async (req, res) => {
+        app.get('/favoriteFullLessons', verifyToken, async (req, res, next) => {
             const email = req.query.email;
 
             // Step 1: find favorite records
@@ -729,7 +767,7 @@ async function run() {
 
             res.send(result);
         });
-        app.get('/totalFavorites',  async (req, res) => {
+        app.get('/totalFavorites', async (req, res) => {
             try {
                 const total = await favoriteCollection.countDocuments();
                 res.send({ total });
