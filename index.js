@@ -72,7 +72,6 @@ async function run() {
         // =====================================================================
         //                           USER ROUTES
         // =====================================================================
-
         // Create new user with password
         app.post('/users', async (req, res) => {
             try {
@@ -104,7 +103,6 @@ async function run() {
                 res.status(500).send({ message: "Failed to save user" });
             }
         });
-
         app.get('/users', async (req, res, next) => {
             const result = await userCollection.find().toArray();
             res.send(result);
@@ -114,7 +112,6 @@ async function run() {
             const user = await userCollection.findOne({ email });
             res.send(user);
         });
-
         // Update user plan (Free / Premium)
         app.put("/updateUserPlan", async (req, res) => {
             const { email, plan } = req.body;
@@ -479,8 +476,6 @@ async function run() {
                 res.status(500).send({ message: "Server error" });
             }
         });
-
-
         // =====================================================================
         //                      Reports Lessons
         // =====================================================================
@@ -708,13 +703,33 @@ async function run() {
                 totalLikes: doc.likedBy.length
             });
         });
+        // get total likes
+        app.get("/lessons/:id/likes", async (req, res) => {
+            try {
+                const lessonId = req.params.id;
+
+                const totalLikes = await loveReactCollection.countDocuments({
+                    lessonId: lessonId
+                });
+
+                res.send({ lessonId, totalLikes });
+            } catch (error) {
+                res.status(500).send({ error: error.message });
+            }
+        });
 
         // =====================================================================
-        //                      FAVORITE Dashboard show data
+        //                      FAVORITE SYSTEM show data
         // =====================================================================
 
-
-
+        app.get("/favorite", async (req, res) => {
+            try {
+                const favorite = await favoriteCollection.find().toArray();
+                res.send(favorite);
+            } catch (error) {
+                res.status(500).send({ error: error.message });
+            }
+        })
 
         // TOGGLE FAVORITE (add/remove)
         app.post("/favorite/:lessonId", async (req, res) => {
@@ -774,9 +789,7 @@ async function run() {
                 res.status(500).send({ message: "Internal Server Error" });
             }
         });
-
-
-        // 🔍 INITIAL FAVORITE STATUS
+        //  INITIAL FAVORITE STATUS
         app.get("/favorite/:lessonId/:email", async (req, res) => {
             const { lessonId, email } = req.params;
 
@@ -789,11 +802,36 @@ async function run() {
                 totalFavorites: doc?.favoritedBy.length || 0,
             });
         });
+        // remove favorite
+        app.post("/favorite/:lessonId/remove", async (req, res) => {
+            try {
+                const lessonId = req.params.lessonId;
 
+                const lessonObjectId = new ObjectId(lessonId);
 
+                const existing = await favoriteCollection.findOne({ lessonId: lessonObjectId });
 
+                if (!existing) {
+                    return res.send({ message: "No favorites to remove", totalFavorites: 0 });
+                }
 
+                // Remove all favorites for that lesson (or guest)
+                await favoriteCollection.updateOne(
+                    { lessonId: lessonObjectId },
+                    { $set: { favoritedBy: [] } }
+                );
 
+                const updated = await favoriteCollection.findOne({ lessonId: lessonObjectId });
+
+                res.send({
+                    favorited: updated.favoritedBy.length > 0,
+                    totalFavorites: updated.favoritedBy.length,
+                });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Internal Server Error" });
+            }
+        });
         // get favorite full lessons
         app.get('/favoriteFullLessons', verifyToken, async (req, res, next) => {
             const email = req.query.email;
@@ -832,15 +870,59 @@ async function run() {
             res.send(result);
         });
 
-        app.get('/comments', verifyToken, async (req, res, next) => {
-            const postId = req.query.postId;
-            const comments = await commentCollection
-                .find({ postId })
-                .sort({ _id: -1 })
-                .toArray();
 
-            res.send(comments);
+        // Get comments for a post (public)
+        app.get("/comments", async (req, res) => {
+            const { postId } = req.query;
+            if (!postId) return res.status(400).json({ message: "postId required" });
+
+            try {
+                const comments = await commentCollection
+                    .find({ postId: postId })
+                    .sort({ createdAt: -1 })
+                    .toArray();
+                res.json(comments);
+            } catch (err) {
+                res.status(500).json({ message: "Failed to fetch comments" });
+            }
         });
+
+        // Add comment (logged-in only)
+        // app.post("/comments",  async (req, res, ) => {
+        //     const user = req.user; // injected by verifyToken
+        //     const { postId, comment } = req.body;
+
+        //     if (!user) return res.status(401).json({ message: "Login required" });
+        //     if (!comment || !postId)
+        //         return res.status(400).json({ message: "Comment & postId required" });
+
+        //     try {
+        //         const newComment = {
+        //             postId,
+        //             comment,
+        //             user: user.displayName,
+        //             photo: user.photoURL || "",
+        //             createdAt: new Date().toISOString(),
+        //         };
+
+        //         const result = await commentCollection.insertOne(newComment);
+        //         res.status(201).json({ ...newComment, _id: result.insertedId });
+        //     } catch (err) {
+        //         res.status(500).json({ message: "Failed to add comment" });
+        //     }
+        // });
+
+
+
+
+
+
+
+
+
+
+
+
 
     } finally { }
 }
