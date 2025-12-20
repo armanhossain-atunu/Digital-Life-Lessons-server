@@ -329,7 +329,7 @@ async function run() {
             }
         });
         // all lessons
-        app.get("/lessons", async (req, res) => {
+        app.get("/lessons",  async (req, res, next) => {
             const { email } = req.query;
             const query = email ? { authorEmail: email } : {};
 
@@ -364,7 +364,6 @@ async function run() {
             }
         });
         // update
-
         app.patch("/lessons/:id", verifyToken, async (req, res) => {
             const { id } = req.params;
             const updatedLesson = req.body;
@@ -391,7 +390,6 @@ async function run() {
 
             res.send(result);
         });
-
         // Delete
         app.delete('/lessons/:id', async (req, res) => {
             const id = req.params.id;
@@ -476,6 +474,32 @@ async function run() {
                 res.status(500).send({ message: "Server error" });
             }
         });
+
+        app.patch("/admin/lessons/:id/access-level", async (req, res) => {
+            try {
+                const lessonId = req.params.id;
+                const { accessLevel } = req.body; // Free / Premium
+
+                if (!ObjectId.isValid(lessonId)) {
+                    return res.status(400).send({ message: "Invalid lesson ID" });
+                }
+
+                if (!["Free", "Premium"].includes(accessLevel)) {
+                    return res.status(400).send({ message: "Invalid access level" });
+                }
+
+                const updated = await lessonsCollection.updateOne(
+                    { _id: new ObjectId(lessonId) },
+                    { $set: { accessLevel } }
+                );
+
+                res.send({ success: true, accessLevel });
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
+
         // =====================================================================
         //                      Reports Lessons
         // =====================================================================
@@ -483,16 +507,16 @@ async function run() {
         app.post("/lessons/report/:id", async (req, res) => {
             try {
                 const lessonId = req.params.id;
-                const { reason, reporterEmail } = req.body;
+                const { reason, reporterEmail, reporterName } = req.body;
 
                 // Basic validation
                 if (!ObjectId.isValid(lessonId)) {
                     return res.status(400).send({ message: "Invalid lesson ID" });
                 }
 
-                if (!reason || !reporterEmail) {
+                if (!reason || !reporterEmail || !reporterName) {
                     return res.status(400).send({
-                        message: "Reason and reporterEmail are required",
+                        message: "Reason, reporterEmail and reporterName are required",
                     });
                 }
 
@@ -516,9 +540,12 @@ async function run() {
                     });
                 }
 
+                // Report object with default status
                 const report = {
                     reason,
+                    reporterName,
                     reporterEmail,
+                    status: "Pending",
                     reportedAt: new Date(),
                 };
 
@@ -540,6 +567,109 @@ async function run() {
                 res.status(500).send({ message: "Server error" });
             }
         });
+        // PATCH /admin/lessons/:lessonId/update-report-status
+        app.patch("/admin/lessons/:lessonId/update-report-status", async (req, res) => {
+            try {
+                const { lessonId } = req.params;
+                const { reporterEmail, status } = req.body;
+
+                // Validate
+                if (!ObjectId.isValid(lessonId)) {
+                    return res.status(400).send({ message: "Invalid lesson ID" });
+                }
+
+                if (!reporterEmail || !status) {
+                    return res.status(400).send({ message: "reporterEmail and status are required" });
+                }
+
+                // Validate allowed status values
+                const allowedStatuses = ["Pending", "Resolved", "Rejected"];
+                if (!allowedStatuses.includes(status)) {
+                    return res.status(400).send({ message: "Invalid status value" });
+                }
+
+                // Update the status of the specific report
+                const result = await lessonsCollection.updateOne(
+                    { _id: new ObjectId(lessonId), "reports.reporterEmail": reporterEmail },
+                    { $set: { "reports.$.status": status } }
+                );
+
+                if (result.modifiedCount === 0) {
+                    return res.status(404).send({ message: "Report not found" });
+                }
+
+                res.send({
+                    success: true,
+                    message: `Report status updated to ${status}`,
+                    result,
+                });
+            } catch (error) {
+                console.error("Update report status error:", error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
+
+        // app.post("/lessons/report/:id", async (req, res) => {
+        //     try {
+        //         const lessonId = req.params.id;
+        //         const { reason, reporterEmail } = req.body;
+
+        //         // Basic validation
+        //         if (!ObjectId.isValid(lessonId)) {
+        //             return res.status(400).send({ message: "Invalid lesson ID" });
+        //         }
+
+        //         if (!reason || !reporterEmail) {
+        //             return res.status(400).send({
+        //                 message: "Reason and reporterEmail are required",
+        //             });
+        //         }
+
+        //         const lesson = await lessonsCollection.findOne({
+        //             _id: new ObjectId(lessonId),
+        //         });
+
+        //         // Lesson not found
+        //         if (!lesson) {
+        //             return res.status(404).send({ message: "Lesson not found" });
+        //         }
+
+        //         // Duplicate report check
+        //         const alreadyReported = lesson.reports?.some(
+        //             (r) => r.reporterEmail === reporterEmail
+        //         );
+
+        //         if (alreadyReported) {
+        //             return res.status(409).send({
+        //                 message: "You already reported this lesson",
+        //             });
+        //         }
+
+        //         const report = {
+        //             reason,
+        //            reporterName,
+        //             reporterEmail,
+        //             reportedAt: new Date(),
+        //         };
+
+        //         const result = await lessonsCollection.updateOne(
+        //             { _id: new ObjectId(lessonId) },
+        //             {
+        //                 $push: { reports: report },
+        //                 $inc: { reportCount: 1 },
+        //             }
+        //         );
+
+        //         res.send({
+        //             success: true,
+        //             message: "Lesson reported successfully",
+        //             result,
+        //         });
+        //     } catch (error) {
+        //         console.error("Report error:", error);
+        //         res.status(500).send({ message: "Server error" });
+        //     }
+        // });
         app.get("/admin/reported-lessons", async (req, res) => {
             try {
                 const lessons = await lessonsCollection
@@ -851,7 +981,7 @@ async function run() {
 
             res.send(result);
         });
-        app.get('/totalFavorites', async (req, res) => {
+        app.get('/totalFavorites', verifyToken, async (req, res, next) => {
             try {
                 const total = await favoriteCollection.countDocuments();
                 res.send({ total });
@@ -886,43 +1016,6 @@ async function run() {
                 res.status(500).json({ message: "Failed to fetch comments" });
             }
         });
-
-        // Add comment (logged-in only)
-        // app.post("/comments",  async (req, res, ) => {
-        //     const user = req.user; // injected by verifyToken
-        //     const { postId, comment } = req.body;
-
-        //     if (!user) return res.status(401).json({ message: "Login required" });
-        //     if (!comment || !postId)
-        //         return res.status(400).json({ message: "Comment & postId required" });
-
-        //     try {
-        //         const newComment = {
-        //             postId,
-        //             comment,
-        //             user: user.displayName,
-        //             photo: user.photoURL || "",
-        //             createdAt: new Date().toISOString(),
-        //         };
-
-        //         const result = await commentCollection.insertOne(newComment);
-        //         res.status(201).json({ ...newComment, _id: result.insertedId });
-        //     } catch (err) {
-        //         res.status(500).json({ message: "Failed to add comment" });
-        //     }
-        // });
-
-
-
-
-
-
-
-
-
-
-
-
 
     } finally { }
 }
