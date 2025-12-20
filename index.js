@@ -52,7 +52,7 @@ const verifyToken = async (req, res, next) => {
 
     try {
         const decode = await admin.auth().verifyIdToken(token);
-        req.decoded = decode; // optional
+        req.decoded = decode;
         next();
     } catch (error) {
         return res.status(401).send({ message: "Unauthorized access" });
@@ -68,6 +68,17 @@ async function run() {
         const loveReactCollection = db.collection('LoveReact');
         const favoriteCollection = db.collection('Favorite');
         const paymentCollection = db.collection('Payments');
+
+
+        // role middleware
+        const verifyAdmin = async (req, res, next) => {
+            const email = req.decoded.email;
+            const user = await userCollection.findOne({ email });
+            if (!user || user?.role !== "admin") {
+                return res.status(403).send({ message: "Admin access only" });
+            }
+            next();
+        };
 
         // =====================================================================
         //                           USER ROUTES
@@ -103,7 +114,7 @@ async function run() {
                 res.status(500).send({ message: "Failed to save user" });
             }
         });
-        app.get('/users', async (req, res, next) => {
+        app.get('/users', async (req, res,) => {
             const result = await userCollection.find().toArray();
             res.send(result);
         });
@@ -159,7 +170,7 @@ async function run() {
             }
         })
         // DELETE user by email
-        app.delete('/users/:email', async (req, res) => {
+        app.delete('/users/:email', verifyToken, verifyAdmin, async (req, res) => {
             const email = req.params.email;
 
             try {
@@ -329,7 +340,7 @@ async function run() {
             }
         });
         // all lessons
-        app.get("/lessons",  async (req, res, next) => {
+        app.get("/lessons", async (req, res, next) => {
             const { email } = req.query;
             const query = email ? { authorEmail: email } : {};
 
@@ -475,7 +486,7 @@ async function run() {
             }
         });
 
-        app.patch("/admin/lessons/:id/access-level", async (req, res) => {
+        app.patch("/admin/lessons/:id/access-level", verifyToken, verifyAdmin, async (req, res, next) => {
             try {
                 const lessonId = req.params.id;
                 const { accessLevel } = req.body; // Free / Premium
@@ -707,11 +718,17 @@ async function run() {
         // =====================================================================
         //                      REVIEWS
         // =====================================================================
-
+        // review post
         app.post("/lessons/:id/review", async (req, res) => {
             try {
                 const lessonId = req.params.id;
-                const { rating, comment, reviewerEmail } = req.body;
+                const {
+                    rating,
+                    comment,
+                    reviewerEmail,
+                    reviewerName,
+                    reviewerPhoto,
+                } = req.body;
 
                 if (!rating || !comment || !reviewerEmail) {
                     return res.status(400).send({ message: "All fields required" });
@@ -725,8 +742,9 @@ async function run() {
                     return res.status(404).send({ message: "Lesson not found" });
                 }
 
-                //  Duplicate review check
-                const alreadyReviewed = lesson.reviews?.some(
+                const reviews = lesson.reviews || [];
+
+                const alreadyReviewed = reviews.find(
                     (r) => r.reviewerEmail === reviewerEmail
                 );
 
@@ -740,31 +758,34 @@ async function run() {
                     rating: Number(rating),
                     comment,
                     reviewerEmail,
+                    reviewerName: reviewerName || "Anonymous",
+                    reviewerPhoto: reviewerPhoto || "",
                     createdAt: new Date(),
                 };
 
-                const totalRating =
-                    (lesson.averageRating || 0) * (lesson.reviewCount || 0) +
-                    Number(rating);
+                const reviewCount = lesson.reviewCount || 0;
+                const averageRating = lesson.averageRating || 0;
 
-                const newReviewCount = (lesson.reviewCount || 0) + 1;
-
-                const averageRating = totalRating / newReviewCount;
+                const newAverage =
+                    (averageRating * reviewCount + Number(rating)) /
+                    (reviewCount + 1);
 
                 await lessonsCollection.updateOne(
                     { _id: new ObjectId(lessonId) },
                     {
                         $push: { reviews: review },
-                        $set: { averageRating },
+                        $set: { averageRating: Number(newAverage.toFixed(1)) },
                         $inc: { reviewCount: 1 },
                     }
                 );
 
-                res.send({ success: true, message: "Review added" });
-            } catch (err) {
+                res.send({ success: true });
+            } catch (error) {
+                console.error("REVIEW ERROR:", error);
                 res.status(500).send({ message: "Server error" });
             }
         });
+
         // get reviews
         app.get("/lessons/:id/reviews", async (req, res) => {
             const lesson = await lessonsCollection.findOne(
