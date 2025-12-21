@@ -1,16 +1,18 @@
 const express = require('express');
+const serverless = require('serverless-http');
 const cors = require('cors');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require("dotenv").config();
 const admin = require("firebase-admin");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
-const serviceAccount = require("./digital-life-lesson-firebase-adminsdk.json");
 const bcrypt = require("bcrypt");
 const app = express();
 const port = process.env.PORT || 3000;
 
 
 
+const decoded = Buffer.from(process.env.FB_SERVICE_KEY, 'base64').toString('utf8')
+const serviceAccount = JSON.parse(decoded);
 // Middleware
 app.use(
     cors({
@@ -619,68 +621,18 @@ async function run() {
                 res.status(500).send({ message: "Server error" });
             }
         });
-
-        // app.post("/lessons/report/:id", async (req, res) => {
-        //     try {
-        //         const lessonId = req.params.id;
-        //         const { reason, reporterEmail } = req.body;
-
-        //         // Basic validation
-        //         if (!ObjectId.isValid(lessonId)) {
-        //             return res.status(400).send({ message: "Invalid lesson ID" });
-        //         }
-
-        //         if (!reason || !reporterEmail) {
-        //             return res.status(400).send({
-        //                 message: "Reason and reporterEmail are required",
-        //             });
-        //         }
-
-        //         const lesson = await lessonsCollection.findOne({
-        //             _id: new ObjectId(lessonId),
-        //         });
-
-        //         // Lesson not found
-        //         if (!lesson) {
-        //             return res.status(404).send({ message: "Lesson not found" });
-        //         }
-
-        //         // Duplicate report check
-        //         const alreadyReported = lesson.reports?.some(
-        //             (r) => r.reporterEmail === reporterEmail
-        //         );
-
-        //         if (alreadyReported) {
-        //             return res.status(409).send({
-        //                 message: "You already reported this lesson",
-        //             });
-        //         }
-
-        //         const report = {
-        //             reason,
-        //            reporterName,
-        //             reporterEmail,
-        //             reportedAt: new Date(),
-        //         };
-
-        //         const result = await lessonsCollection.updateOne(
-        //             { _id: new ObjectId(lessonId) },
-        //             {
-        //                 $push: { reports: report },
-        //                 $inc: { reportCount: 1 },
-        //             }
-        //         );
-
-        //         res.send({
-        //             success: true,
-        //             message: "Lesson reported successfully",
-        //             result,
-        //         });
-        //     } catch (error) {
-        //         console.error("Report error:", error);
-        //         res.status(500).send({ message: "Server error" });
-        //     }
-        // });
+        app.get("/admin/lessons/reported", async (req, res) => {
+            try {
+                const lessons = await lessonsCollection
+                    .find({ reportCount: { $gt: 0 } })
+                    .toArray();
+                res.send(lessons);
+            } catch (error) {
+                res.status(500).send({ message: "Failed to load reports" });
+            }
+            
+        })
+        // GET /admin/reported-lessons
         app.get("/admin/reported-lessons", async (req, res) => {
             try {
                 const lessons = await lessonsCollection
@@ -1047,8 +999,8 @@ run().catch(console.dir);
 app.get('/', (req, res) => {
     res.send('Digital Life Lessons server is running');
 });
-
-// Listener
 app.listen(port, () => {
-    console.log(`Digital Life Lessons Server running on port ${port}`);
-});
+    console.log(`Example app listening on port ${port}`)
+})
+// // Export for serverless platforms (Vercel)
+// module.exports = serverless(app);ver
