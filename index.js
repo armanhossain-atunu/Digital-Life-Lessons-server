@@ -356,15 +356,45 @@ async function run() {
         // public lessons
         app.get("/lessons/public", async (req, res) => {
             try {
-                const query = { isPublic: "true" };
+                const query = {
+                    // isPublic: true,        
+                    accessLevel: "Free"
+                };
+
                 const lessons = await lessonsCollection.find(query).toArray();
                 const total = await lessonsCollection.countDocuments(query);
+
                 res.send({ total, lessons });
             } catch (error) {
                 console.error(error);
                 res.status(500).send({ message: "Internal Server Error" });
             }
         });
+//  top-contributors
+        app.get("/lessons/public/top-contributors", async (req, res) => {
+            try {
+                const topContributors = await lessonsCollection
+                    .aggregate([
+                        {
+                            $group: {
+                                _id: "$authorEmail",     
+                                name: { $first: "$authorName" },      
+                                authorImage: { $first: "$authorImage" }, 
+                                contributions: { $sum: 1 }          
+                            },
+                        },
+                        { $sort: { contributions: -1 } },
+                        { $limit: 30 },                   
+                    ])
+                    .toArray();
+
+                res.send(topContributors);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Internal Server Error" });
+            }
+        });
+
         // single id
         app.get("/lessons/:id", async (req, res) => {
             try {
@@ -630,7 +660,7 @@ async function run() {
             } catch (error) {
                 res.status(500).send({ message: "Failed to load reports" });
             }
-            
+
         })
         // GET /admin/reported-lessons
         app.get("/admin/reported-lessons", async (req, res) => {
