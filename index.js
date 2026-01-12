@@ -19,6 +19,7 @@ app.use(
         origin: [
             'http://localhost:5173',
             'http://localhost:5174',
+            "https://digitalll.netlify.app"
         ],
         credentials: true,
         optionSuccessStatus: 200,
@@ -356,9 +357,12 @@ async function run() {
         // public lessons
         app.get("/lessons/public", async (req, res) => {
             try {
+                const { category } = req.query;
+
+                // Base query: only free lessons
                 const query = {
-                    // isPublic: true,        
-                    accessLevel: "Free"
+                    accessLevel: "Free",
+                    ...(category ? { category } : {}),
                 };
 
                 const lessons = await lessonsCollection.find(query).toArray();
@@ -370,21 +374,22 @@ async function run() {
                 res.status(500).send({ message: "Internal Server Error" });
             }
         });
-//  top-contributors
+
+        //  top-contributors
         app.get("/lessons/public/top-contributors", async (req, res) => {
             try {
                 const topContributors = await lessonsCollection
                     .aggregate([
                         {
                             $group: {
-                                _id: "$authorEmail",     
-                                name: { $first: "$authorName" },      
-                                authorImage: { $first: "$authorImage" }, 
-                                contributions: { $sum: 1 }          
+                                _id: "$authorEmail",
+                                name: { $first: "$authorName" },
+                                authorImage: { $first: "$authorImage" },
+                                contributions: { $sum: 1 }
                             },
                         },
                         { $sort: { contributions: -1 } },
-                        { $limit: 30 },                   
+                        { $limit: 30 },
                     ])
                     .toArray();
 
@@ -777,6 +782,31 @@ async function run() {
 
             res.send(lesson || {});
         });
+        // get all reviews
+        app.get("/lessons/reviews/all", async (req, res) => {
+            try {
+                const lessons = await lessonsCollection
+                    .find({}, { projection: { title: 1, reviews: 1 } })
+                    .toArray();
+                const allReviews = [];
+
+                lessons.forEach((lesson) => {
+                    if (lesson.reviews && Array.isArray(lesson.reviews)) {
+                        lesson.reviews.forEach((review) => {
+                            allReviews.push({
+                                ...review,
+                                lessonTitle: lesson.title 
+                            });
+                        });
+                    }
+                });
+                res.send(allReviews);
+            } catch (error) {
+                console.log(error);
+                res.status(500).send({ message: "Failed to load reviews" });
+            }
+        });
+
         // =====================================================================
         //                      LOVE REACT (LIKE) SYSTEM
         // =====================================================================
